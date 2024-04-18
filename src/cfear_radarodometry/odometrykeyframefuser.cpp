@@ -31,6 +31,7 @@ OdometryKeyframeFuser::OdometryKeyframeFuser(const Parameters& pars, bool disabl
 
   radar_reg->SetD2dPar(par.covar_scale_,par.regularization_);
 
+  //Eigen::Affine3d 类型表示的是一个 4x4 的仿射变换矩阵 T ，同时表示旋转和平移
   Tprev_fused = Eigen::Affine3d::Identity();
   Tcurrent = Eigen::Affine3d::Identity();
   cov_current = Covariance::Identity();
@@ -144,12 +145,14 @@ void OdometryKeyframeFuser::processFrame(pcl::PointCloud<pcl::PointXYZI>::Ptr& c
 
   ros::Time t0 = ros::Time::now();
   Eigen::Affine3d TprevMot(Tmot);
+  //补偿
   if(par.compensate){
     Compensate(*cloud, TprevMot, par.radar_ccw);
     Compensate(*cloud_peaks, TprevMot, par.radar_ccw);
   }
 
 
+  //元素的类型是 Matrix6d，大小为 6x6 的矩阵
   std::vector<Matrix6d> cov_vek;
   Covariance cov_sampled;
   std::vector<CFEAR_Radarodometry::MapNormalPtr> scans_vek;
