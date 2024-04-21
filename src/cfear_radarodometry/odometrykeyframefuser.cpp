@@ -166,11 +166,27 @@ void OdometryKeyframeFuser::processFrame(pcl::PointCloud<pcl::PointXYZI>::Ptr& c
   ros::Time t2 = ros::Time::now();
   Eigen::Affine3d Tguess;
   if(par.use_guess)
+  { 
+    //T_prev 是上一帧在map坐标系下的变换
+    //TprevMot 是 通过运动模型预测的 当前帧 在 上一帧坐标系下 的变换
     Tguess = T_prev*TprevMot;
+    // std::vector<double> m_4 , m_5, m_6;
+    // CFEAR_Radarodometry::Affine3dToVectorXYeZ(TprevMot, m_4);
+    // for (const auto& element : m_4) {
+    //   std::cout << "TprevMot:"<<element << " ";
+    // }
+    // std::cout << std::endl;
+    // CFEAR_Radarodometry::Affine3dToVectorXYeZ(T_prev, m_5);
+    // for (const auto& element : m_5) {
+    //   std::cout << "T_prev:"<<element << " ";
+    // }
+    // std::cout << std::endl;
+  } 
   else
+  {
     Tguess = T_prev;
-
-
+  }
+  //第一帧
   if(keyframes_.empty()){
     scan_ = RadarScan(Eigen::Affine3d::Identity(), Eigen::Affine3d::Identity(), cloud_peaks, cloud, Pcurrent, t);
     AddToGraph(keyframes_, scan_, Eigen::Matrix<double,6,6>::Identity());
@@ -186,6 +202,7 @@ void OdometryKeyframeFuser::processFrame(pcl::PointCloud<pcl::PointXYZI>::Ptr& c
 
   bool success = true;
   if(!par.disable_registration)
+    //配准成功 ， 把cov_vek除了.back()，都变成m<< 0.1*0.1, 0.1*0.1, 0, 0, 0, 0.01*0.01;reg_cov[i] = m.asDiagonal();
     bool success = radar_reg->Register(scans_vek, T_vek, cov_vek, par.soft_constraint);
 
   ros::Time t3 = ros::Time::now();
@@ -194,13 +211,16 @@ void OdometryKeyframeFuser::processFrame(pcl::PointCloud<pcl::PointXYZI>::Ptr& c
     cout<<"registration failure"<<radar_reg->summary_.FullReport()<<endl;
     exit(0);
   }
-
+  //配准成功，更新
+  //Tcurrent是 配准成功后 当前帧 在 map坐标系下的位置
   Tcurrent = T_vek.back();
   cov_current = cov_vek.back();
-  Eigen::Affine3d Tmot_current = T_prev.inverse()*Tcurrent;
-  if(!AccelerationVelocitySanityCheck(Tmot, Tmot_current))
+
+
+  Eigen::Affine3d Tmot_current = T_prev.inverse()*Tcurrent; //Tmot_current是 优化后 当前帧 在 上一帧 坐标系下的位置
+  if(!AccelerationVelocitySanityCheck(Tmot, Tmot_current)) //此时Tmot是 通过匀速模型或者ℹmu预测 的这一帧在 上一帧的位置
     Tcurrent = Tguess; //Insane acceleration and speed, lets use the guess.
-  Tmot = T_prev.inverse()*Tcurrent;
+  Tmot = T_prev.inverse()*Tcurrent;//Tmot 是 优化后 当前帧 在 上一帧 坐标系下的位置
 
   // Try to approximate the covariance by the cost-sampling approach
   if(par.estimate_cov_by_sampling){
@@ -226,14 +246,14 @@ void OdometryKeyframeFuser::processFrame(pcl::PointCloud<pcl::PointXYZI>::Ptr& c
     trans_vek.push_back(tf::StampedTransform(Tf, t, par.odometry_link_id, "radar_link"));
     Tbr.sendTransform(trans_vek);
   }
-
+  //当前帧 在 上一关键帧 坐标系的位置
   const Eigen::Affine3d Tkeydiff = keyframes_.back().GetPose().inverse()*Tcurrent;
   bool fuse = KeyFrameBasedFuse(Tkeydiff, par.use_keyframe, par.min_keyframe_dist_, par.min_keyframe_rot_deg_);
 
 
   CFEAR_Radarodometry::timing.Document("velocity", Tmot.translation().norm()/Tsensor);
 
-
+  //配准成功 和 平移旋转达到关键帧阈值 ， 更新关键帧
   if(success && fuse){
     //cout << "fuse" <<endl;
     distance_traveled += Tkeydiff.translation().norm();
@@ -469,7 +489,7 @@ void OdometryKeyframeFuser::SaveGraph(const std::string& path){
   if(par.store_graph)
     CFEAR_Radarodometry::SaveSimpleGraph(path, graph_);
 }
-
+//添加当前帧到关键帧
 void AddToReference(PoseScanVector& reference, RadarScan& scan, size_t submap_scan_size){
 
   reference.push_back(scan);
